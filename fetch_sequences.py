@@ -2,6 +2,7 @@ from Bio import Entrez, SeqIO
 import requests
 import os
 from io import StringIO 
+from Bio.SeqRecord import SeqRecord
 
 
 Entrez.email = "steph@gmail.com"
@@ -40,24 +41,31 @@ def fetch_from_uniprot(uni_ids):
 
 def download_sample_dataset():
 
-    human_alpha = fetch_from_ncbi(['NP_000509']) # human haemoglobin alpha
-    human_beta = fetch_from_ncbi(['NP_000518']) # human haemoglobin beta 
+    human_alpha = fetch_from_ncbi(['NP_000558'])
+    human_beta = fetch_from_ncbi(['NP_000509'])
 
     other_species = fetch_from_ncbi([
-        'NP_032243',  # Mouse hemoglobin alpha
-        'NP_032244',  # Mouse hemoglobin beta
-        'NP_001107728', # Rat hemoglobin alpha
-        'XP_015733388', # Chimpanzee hemoglobin beta
-        'NP_001094389'  # Bovine hemoglobin beta
+        'NP_032243',
+        'NP_032244',
+        'NP_001107728',
+        'XP_015733388',
+        'NP_001094389'
     ])
 
+    # print(human_alpha)
+    # print("Next")
+    # print(human_beta)
+    # print("Next")
+    # print(other_species)
     all_sequences = {**human_alpha, **human_beta, **other_species}
-    print(all_sequences)
+    # print("Next")
+    # print(all_sequences)
 
     output_file = "haemoglobin_sequences.fasta"
 
     with open(output_file, "w") as f:
         for acc, record in all_sequences.items():
+            print(record)
             SeqIO.write(record, f, "fasta")
 
     print(f"\n✓ Saved {len(all_sequences)} sequences to {output_file}")
