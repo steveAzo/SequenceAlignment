@@ -222,7 +222,7 @@ This project is submitted as part of DCIT 411 coursework.
 
 ## Contact
 
-For questions or clarifications, please contact: [Your Email]
+For questions or clarifications, please contact: stephenazongo77@gmail.com
 
 ---
 
