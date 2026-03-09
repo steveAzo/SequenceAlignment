@@ -1,45 +1,123 @@
+"""
+Hybrid MSA script that uses WSL tools from Windows Python
+"""
 from Bio import AlignIO, SeqIO, Phylo
 from Bio.Align import MultipleSeqAlignment
 import subprocess
 import os
 import time
+import matplotlib
+matplotlib.use('Agg')  # Use non-GUI backend for compatibility
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from io import StringIO
+import platform
 
-class MSAAnalyzer:
+class WSLMSAAnalyzer:
+    """
+    MSA Analyzer that can use WSL tools from Windows
+    """
+    
     def __init__(self, input_fasta):
         self.input_fasta = input_fasta
         self.sequences = list(SeqIO.parse(input_fasta, "fasta"))
         self.results = {}
-        print(f"Loaded {len(self.sequences)} sequences for MSA")
+        self.use_wsl = self.check_wsl_available()
         
-    def run_clustalw(self, output_base="clustalw_alignment"):
+        print(f"Loaded {len(self.sequences)} sequences for MSA")
+        print(f"Platform: {platform.system()}")
+        print(f"Using WSL: {self.use_wsl}")
+        
+    def check_wsl_available(self):
         """
-        Run ClustalW for progressive MSA
+        Check if WSL is available on Windows
+        """
+        if platform.system() != "Windows":
+            return False
+            
+        try:
+            result = subprocess.run(["wsl", "--status"], 
+                                  capture_output=True, 
+                                  text=True,
+                                  timeout=5)
+            return result.returncode == 0
+        except:
+            return False
+    
+    def check_tool_installed(self, tool_name):
+        """
+        Check if a tool is installed in WSL
+        """
+        if not self.use_wsl:
+            return False
+            
+        try:
+            result = subprocess.run(
+                ["wsl", "which", tool_name],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return result.returncode == 0 and result.stdout.strip() != ""
+        except:
+            return False
+    
+    def convert_windows_path_to_wsl(self, windows_path):
+        """
+        Convert Windows path to WSL path
+        Example: C:\\Users\\Name\\file.txt -> /mnt/c/Users/Name/file.txt
+        """
+        # Get absolute path
+        abs_path = os.path.abspath(windows_path)
+        
+        # Convert to WSL format
+        # C:\Users\... -> /mnt/c/Users/...
+        drive = abs_path[0].lower()
+        path_without_drive = abs_path[2:].replace('\\', '/')
+        wsl_path = f"/mnt/{drive}{path_without_drive}"
+        
+        return wsl_path
+    
+    def run_clustalw_wsl(self, output_base="clustalw_alignment"):
+        """
+        Run ClustalW via WSL
         """
         print(f"\n{'='*50}")
-        print("Running ClustalW (Progressive Method)")
+        print("Running ClustalW via WSL (Progressive Method)")
         print('='*50)
         
-        output_aln = f"{output_base}.aln"
-        output_dnd = f"{output_base}.dnd"  # Guide tree
+        if not self.use_wsl:
+            print("✗ WSL not available")
+            return None
         
-        # Check if clustalw2 is installed
+        if not self.check_tool_installed("clustalw2"):
+            print("✗ ClustalW not installed in WSL")
+            print("  Install with: wsl sudo apt install clustalw")
+            return None
+        
+        output_aln = f"{output_base}.aln"
+        
+        # Convert paths to WSL format
+        wsl_input = self.convert_windows_path_to_wsl(self.input_fasta)
+        wsl_output = self.convert_windows_path_to_wsl(output_aln)
+        
         try:
-            # Build command using subprocess
+            # Build WSL command
             cmd = [
+                "wsl",
                 "clustalw2",
-                f"-INFILE={self.input_fasta}",
-                f"-OUTFILE={output_aln}",
+                f"-INFILE={wsl_input}",
+                f"-OUTFILE={wsl_output}",
                 "-OUTPUT=CLUSTAL",
                 "-OUTORDER=INPUT"
             ]
             
+            print(f"Command: {' '.join(cmd)}")
+            
             # Time the execution
             start_time = time.time()
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             end_time = time.time()
             
             if result.returncode != 0:
@@ -58,8 +136,7 @@ class MSAAnalyzer:
                 'alignment': alignment,
                 'conservation': conservation,
                 'length': alignment.get_alignment_length(),
-                'num_sequences': len(alignment),
-                'guide_tree': output_dnd
+                'num_sequences': len(alignment)
             }
             
             print(f"✓ ClustalW completed in {end_time - start_time:.2f} seconds")
@@ -68,33 +145,51 @@ class MSAAnalyzer:
             
             return alignment
             
+        except subprocess.TimeoutExpired:
+            print("✗ ClustalW timed out")
+            return None
         except Exception as e:
             print(f"✗ ClustalW failed: {str(e)}")
             return None
     
-    def run_muscle(self, output_base="muscle_alignment"):
+    def run_muscle_wsl(self, output_base="muscle_alignment"):
         """
-        Run MUSCLE for iterative MSA
+        Run MUSCLE via WSL
         """
         print(f"\n{'='*50}")
-        print("Running MUSCLE (Iterative Method)")
+        print("Running MUSCLE via WSL (Iterative Method)")
         print('='*50)
+        
+        if not self.use_wsl:
+            print("✗ WSL not available")
+            return None
+        
+        if not self.check_tool_installed("muscle"):
+            print("✗ MUSCLE not installed in WSL")
+            print("  Install with: wsl sudo apt install muscle")
+            return None
         
         output_aln = f"{output_base}.aln"
         
+        # Convert paths to WSL format
+        wsl_input = self.convert_windows_path_to_wsl(self.input_fasta)
+        wsl_output = self.convert_windows_path_to_wsl(output_aln)
+        
         try:
-            # Build command using subprocess
+            # Build WSL command
             cmd = [
+                "wsl",
                 "muscle",
-                "-in", self.input_fasta,
-                "-out", output_aln,
-                "-diags",  # Use diagonal finding for speed
-                "-maxiters", "16"  # Maximum iterations
+                "-in", wsl_input,
+                "-out", wsl_output,
+                "-maxiters", "16"
             ]
+            
+            print(f"Command: {' '.join(cmd)}")
             
             # Time the execution
             start_time = time.time()
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             end_time = time.time()
             
             if result.returncode != 0:
@@ -122,32 +217,49 @@ class MSAAnalyzer:
             
             return alignment
             
+        except subprocess.TimeoutExpired:
+            print("✗ MUSCLE timed out")
+            return None
         except Exception as e:
             print(f"✗ MUSCLE failed: {str(e)}")
             return None
     
-    def run_mafft(self, output_base="mafft_alignment"):
+    def run_mafft_wsl(self, output_base="mafft_alignment"):
         """
-        Run MAFFT (another popular MSA tool)
+        Run MAFFT via WSL
         """
         print(f"\n{'='*50}")
-        print("Running MAFFT")
+        print("Running MAFFT via WSL")
         print('='*50)
+        
+        if not self.use_wsl:
+            print("✗ WSL not available")
+            return None
+        
+        if not self.check_tool_installed("mafft"):
+            print("✗ MAFFT not installed in WSL")
+            print("  Install with: wsl sudo apt install mafft")
+            return None
         
         output_aln = f"{output_base}.aln"
         
+        # Convert paths to WSL format
+        wsl_input = self.convert_windows_path_to_wsl(self.input_fasta)
+        wsl_output = self.convert_windows_path_to_wsl(output_aln)
+        
         try:
-            # MAFFT command (need to call via subprocess as no Biopython wrapper)
+            # Build WSL command - MAFFT outputs to stdout
             cmd = [
-                "mafft",
-                "--auto",  # Automatically select strategy
-                "--preservecase",
-                self.input_fasta
+                "wsl",
+                "bash", "-c",
+                f"mafft --auto --preservecase {wsl_input} > {wsl_output}"
             ]
             
+            print(f"Command: {' '.join(cmd)}")
+            
+            # Time the execution
             start_time = time.time()
-            with open(output_aln, 'w') as f:
-                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             end_time = time.time()
             
             if result.returncode != 0:
@@ -175,6 +287,9 @@ class MSAAnalyzer:
             
             return alignment
             
+        except subprocess.TimeoutExpired:
+            print("✗ MAFFT timed out")
+            return None
         except Exception as e:
             print(f"✗ MAFFT failed: {str(e)}")
             return None
@@ -208,13 +323,20 @@ class MSAAnalyzer:
         Compare performance of different MSA tools
         """
         print("\n" + "="*60)
-        print("MSA TOOL COMPARISON")
+        print("MSA TOOL COMPARISON (via WSL)")
         print("="*60)
         
         # Run all tools
-        self.run_clustalw()
-        self.run_muscle()
-        self.run_mafft()
+        self.run_clustalw_wsl()
+        self.run_muscle_wsl()
+        self.run_mafft_wsl()
+        
+        if not self.results:
+            print("\n⚠ No tools completed successfully")
+            print("\nTo install tools in WSL, run:")
+            print("  wsl sudo apt update")
+            print("  wsl sudo apt install -y clustalw muscle mafft")
+            return None
         
         # Create comparison table
         comparison = []
@@ -232,20 +354,33 @@ class MSAAnalyzer:
         print(df.to_string(index=False))
         
         # Create visualization
+        self.create_comparison_plots()
+        
+        return df
+    
+    def create_comparison_plots(self):
+        """
+        Create comparison visualizations
+        """
+        if len(self.results) == 0:
+            return
+        
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         
-        # Time comparison
         tools = list(self.results.keys())
+        colors = ['blue', 'green', 'orange'][:len(tools)]
+        
+        # Time comparison
         times = [self.results[t]['time'] for t in tools]
-        axes[0, 0].bar(tools, times, color=['blue', 'green', 'orange'])
+        axes[0, 0].bar(tools, times, color=colors)
         axes[0, 0].set_ylabel('Time (seconds)')
         axes[0, 0].set_title('MSA Tool Speed Comparison')
         axes[0, 0].set_xlabel('Tool')
         
         # Conservation profiles
-        for tool in tools:
+        for i, tool in enumerate(tools):
             axes[0, 1].plot(self.results[tool]['conservation'], 
-                          label=tool.upper(), alpha=0.7)
+                          label=tool.upper(), alpha=0.7, color=colors[i])
         axes[0, 1].set_xlabel('Alignment Position')
         axes[0, 1].set_ylabel('Conservation Score')
         axes[0, 1].set_title('Conservation Profiles')
@@ -254,91 +389,45 @@ class MSAAnalyzer:
         
         # Alignment length comparison
         lengths = [self.results[t]['length'] for t in tools]
-        axes[1, 0].bar(tools, lengths, color=['blue', 'green', 'orange'])
+        axes[1, 0].bar(tools, lengths, color=colors)
         axes[1, 0].set_ylabel('Alignment Length')
         axes[1, 0].set_title('Alignment Length Comparison')
         
         # Mean conservation
         mean_cons = [np.mean(self.results[t]['conservation']) for t in tools]
-        axes[1, 1].bar(tools, mean_cons, color=['blue', 'green', 'orange'])
+        axes[1, 1].bar(tools, mean_cons, color=colors)
         axes[1, 1].set_ylabel('Mean Conservation')
         axes[1, 1].set_title('Average Conservation Score')
         axes[1, 1].set_ylim(0, 1)
         
         plt.tight_layout()
-        plt.savefig('msa_comparison.png', dpi=300)
-        plt.show()
-        
-        return df
-    
-    def export_for_jalview(self, alignment, filename="alignment_for_jalview.aln"):
-        """
-        Export alignment for visualization in Jalview
-        """
-        AlignIO.write(alignment, filename, "clustal")
-        print(f"\n✓ Alignment exported to {filename} for visualization in Jalview")
-        print("  Jalview commands:")
-        print(f"  jalview {filename}")
-    
-    def calculate_summary_statistics(self):
-        """
-        Calculate comprehensive statistics for each alignment
-        """
-        stats = {}
-        
-        for tool, data in self.results.items():
-            aln = data['alignment']
-            
-            # Gap statistics
-            gap_counts = []
-            for record in aln:
-                gap_count = str(record.seq).count('-')
-                gap_counts.append(gap_count)
-            
-            # Pairwise identity
-            identities = []
-            for i in range(len(aln)):
-                for j in range(i+1, len(aln)):
-                    seq_i = str(aln[i].seq)
-                    seq_j = str(aln[j].seq)
-                    matches = sum(1 for a, b in zip(seq_i, seq_j) 
-                                if a == b and a != '-')
-                    length = sum(1 for a, b in zip(seq_i, seq_j) 
-                               if a != '-' or b != '-')
-                    if length > 0:
-                        identities.append(matches / length)
-            
-            stats[tool] = {
-                'mean_gaps_per_seq': np.mean(gap_counts),
-                'max_gaps': max(gap_counts),
-                'min_gaps': min(gap_counts),
-                'mean_pairwise_identity': np.mean(identities) if identities else 0,
-                'conservation_variance': np.var(data['conservation'])
-            }
-        
-        # Display statistics
-        stats_df = pd.DataFrame(stats).T
-        print("\n" + "="*60)
-        print("DETAILED MSA STATISTICS")
-        print("="*60)
-        print(stats_df)
-        
-        return stats_df
+        plt.savefig('wsl_msa_comparison.png', dpi=300)
+        print(f"\n✓ Comparison plot saved to 'wsl_msa_comparison.png'")
 
 # Main execution
 if __name__ == "__main__":
+    print("="*70)
+    print("WSL-HYBRID MSA ANALYSIS")
+    print("Calls WSL tools from Windows Python")
+    print("="*70)
+    
     # Initialize analyzer
-    msa = MSAAnalyzer("hemoglobin_processed.fasta")
+    msa = WSLMSAAnalyzer("hemoglobin_processed.fasta")
     
-    # Compare tools
-    comparison = msa.compare_tools()
-    
-    # Calculate detailed statistics
-    stats = msa.calculate_summary_statistics()
-    
-    # Export for Jalview (use the MUSCLE alignment as it's often best)
-    if 'muscle' in msa.results:
-        msa.export_for_jalview(msa.results['muscle']['alignment'], 
-                              "hemoglobin_msa_muscle.aln")
-    
-    print("\n✓ MSA analysis complete. Results saved to 'msa_comparison.png'")
+    if not msa.use_wsl:
+        print("\n⚠ WSL not detected!")
+        print("\nPlease ensure WSL is installed:")
+        print("  1. Open PowerShell as Administrator")
+        print("  2. Run: wsl --install")
+        print("  3. Restart your computer")
+        print("  4. Set up your Linux distribution")
+        print("\nOr use the Python-only version: python msa_python_only.py")
+    else:
+        # Compare tools
+        comparison = msa.compare_tools()
+        
+        if comparison is not None:
+            print("\n✓ MSA analysis complete!")
+            print("  Results saved to 'wsl_msa_comparison.png'")
+        else:
+            print("\nFor installation instructions, see: SETUP_MSA_TOOLS.md")
